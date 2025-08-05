@@ -1,7 +1,9 @@
-streamlit
-pandas
-plotly
-numpy
-geopandas
-shapely
-openpyxl
+streamlit==1.32.0
+pandas==2.1.4
+plotly==5.18.0
+numpy==1.26.0
+geopandas==0.14.0
+shapely==2.0.2
+openpyxl==3.1.2
+pyproj==3.6.1
+fiona==1.9.5
