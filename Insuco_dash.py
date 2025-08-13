@@ -320,7 +320,7 @@ with tab1:
 
 with tab2:
     st.header("Manual de uso")
-    pdf_path = "Manual de uso.pdf"
+    pdf_path = os.path.join("docs", "Manual de uso.pdf")
 
     if os.path.exists(pdf_path):
         pdf_viewer(pdf_path, width=700)
