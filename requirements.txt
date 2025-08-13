@@ -7,3 +7,4 @@ pyproj==3.6.1
 shapely==2.0.2
 fiona==1.9.5
 geopandas==0.13.2
+streamlit-pdf-viewer==1.2.0
