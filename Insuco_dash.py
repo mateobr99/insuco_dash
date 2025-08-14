@@ -20,10 +20,7 @@ with tab1:
     @st.cache_data
     def cargar_datos():
         try:
-            # Construir ruta completa al archivo Excel
             excel_path = os.path.join(DATA_DIR, "BD_FINAL_20250617.xlsx")
-            
-            # Verificar si el archivo existe
             if not os.path.exists(excel_path):
                 raise FileNotFoundError(f"No se encontró el archivo Excel en: {excel_path}")
             
@@ -52,10 +49,8 @@ with tab1:
 
     @st.cache_data
     def cargar_geodata():
-        """Carga datos geográficos del Eje Cafetero"""
         try:
             geojson_path = os.path.join(DATA_DIR, "EjeCafetero.json")
-            
             if not os.path.exists(geojson_path):
                 raise FileNotFoundError(f"No se encontró el archivo GeoJSON en: {geojson_path}")
             
@@ -79,7 +74,6 @@ with tab1:
             st.error(f"Error cargando datos geográficos: {str(e)}")
             return None
 
-    # --- NUEVA FUNCIÓN PARA CARGAR EL GLOSARIO ---
     @st.cache_data
     def cargar_glosario():
         try:
@@ -89,7 +83,6 @@ with tab1:
                 return None
             
             glosario = pd.read_excel(glosario_path)
-            # Limpieza básica de nombres de columnas
             glosario.columns = glosario.columns.str.strip()
             return glosario
         except Exception as e:
@@ -99,7 +92,7 @@ with tab1:
     # Cargar los datos
     df = cargar_datos()
     geo_data = cargar_geodata()
-    glosario = cargar_glosario()  # Cargamos el glosario
+    glosario = cargar_glosario()
 
     st.sidebar.header("Filtros")
 
@@ -123,22 +116,25 @@ with tab1:
 
     # 3. Filtros condicionales de Subregión y Municipio
     if tiene_datos_subregion:
+        subregion_opciones = ['Todas'] + sorted(df_filtrado['Subregion'].dropna().unique())
         subregion = st.sidebar.selectbox(
             "Subregión",
-            options=sorted(df_filtrado['Subregion'].dropna().unique())
+            options=subregion_opciones
         )
-        df_filtrado = df_filtrado[df_filtrado['Subregion'] == subregion]
+        if subregion != 'Todas':
+            df_filtrado = df_filtrado[df_filtrado['Subregion'] == subregion]
     else:
         subregion = None
         st.sidebar.info("Dimensión sin datos de subregión")
 
     if tiene_datos_municipales:
-        municipios_opciones = sorted(df_filtrado['Municipio'].dropna().unique())
+        municipios_opciones = ['Todas'] + sorted(df_filtrado['Municipio'].dropna().unique())
         municipio = st.sidebar.selectbox(
             "Municipio",
             options=municipios_opciones
         )
-        df_filtrado = df_filtrado[df_filtrado['Municipio'] == municipio]
+        if municipio != 'Todas':
+            df_filtrado = df_filtrado[df_filtrado['Municipio'] == municipio]
     else:
         municipio = None
         st.sidebar.info("Dimensión sin datos municipales")
@@ -172,12 +168,9 @@ with tab1:
     # Visualización principal
     # --------------------------------------------------
     if not df_filtrado.empty:
-        # --- NUEVA SECCIÓN: Mostrar interpretación del indicador ---
         if glosario is not None:
             try:
-                # Buscar la interpretación para la variable seleccionada
                 interpretacion = glosario.loc[glosario['Indicador'] == variable, 'Definición']
-                
                 if not interpretacion.empty:
                     with st.expander("¿Cómo interpretar este indicador?", expanded=True):
                         st.info(interpretacion.iloc[0])
@@ -187,9 +180,9 @@ with tab1:
         # Título dinámico
         titulo = f"{variable} - {departamento}"
         if subregion:
-            titulo += f" ({subregion})"
+            titulo += f" ({subregion})" if subregion != 'Todas' else " (Todas las subregiones)"
         if municipio:
-            titulo += f", {municipio}"
+            titulo += f", {municipio}" if municipio != 'Todas' else ", Todos los municipios"
         st.subheader(titulo)
         
         # Mostrar metadatos
@@ -201,44 +194,69 @@ with tab1:
         if metadata:
             st.caption(" | ".join(metadata))
         
-        # Gráfico de evolución temporal
-        fig = px.line(
-            df_filtrado.sort_values('Año'),
-            x='Año',
-            y='Valor',
-            title=f"Evolución de {variable}",
-            markers=True,
-            height=500
-        )
+        # Gráfico de evolución temporal (MODIFICADO PARA MOSTRAR SUMA AGREGADA)
+        if not df_filtrado.empty:
+            modo_agregado = (tiene_datos_municipales and municipio == 'Todas') or (tiene_datos_subregion and subregion == 'Todas')
+            
+            if modo_agregado:
+                # Agrupar datos por año y calcular la suma total
+                df_agrupado = df_filtrado.groupby('Año', as_index=False).agg({
+                    'Valor': 'sum',
+                    'Municipio': pd.Series.nunique
+                }).rename(columns={'Municipio': 'Num_Municipios'})
+                
+                fig = px.line(
+                    df_agrupado.sort_values('Año'),
+                    x='Año',
+                    y='Valor',
+                    title=f"Evolución Total de {variable}",
+                    markers=True,
+                    height=500,
+                    hover_data=['Num_Municipios'],
+                    labels={'Valor': 'Valor Total', 'Num_Municipios': 'Municipios incluidos'}
+                )
+                
+                fig.update_traces(
+                    hovertemplate="<b>Año: %{x}</b><br>" +
+                                "Valor total: %{y:,.0f}<br>" +
+                                "Municipios incluidos: %{customdata[0]}<extra></extra>"
+                )
+            else:
+                # Gráfico normal (sin agregación)
+                fig = px.line(
+                    df_filtrado.sort_values('Año'),
+                    x='Año',
+                    y='Valor',
+                    title=f"Evolución de {variable}",
+                    markers=True,
+                    height=500
+                )
+            
+            # Añadir línea vertical en el último año disponible
+            ultimo_anio = df_filtrado['Año'].max()
+            fig.add_vline(
+                x=ultimo_anio, 
+                line_dash="dash", 
+                line_color="red",
+                annotation_text="Último año disponible",
+                annotation_position="top left"
+            )
+            
+            fig.update_layout(
+                xaxis_title='Año',
+                yaxis_title='Valor Total' if modo_agregado else 'Valor',
+                hovermode='x unified',
+                showlegend=False
+            )
+            
+            st.plotly_chart(fig, use_container_width=True)
         
-        # Añadir línea vertical en el último año disponible
-        ultimo_anio = df_filtrado['Año'].max()
-        fig.add_vline(
-            x=ultimo_anio, 
-            line_dash="dash", 
-            line_color="red",
-            annotation_text="Último año disponible",
-            annotation_position="top left"
-        )
-        
-        fig.update_layout(
-            xaxis_title='Año',
-            yaxis_title='Valor',
-            hovermode='x unified',
-            showlegend=False
-        )
-        
-        # Mostrar gráfico temporal
-        st.plotly_chart(fig, use_container_width=True)
-        
-        # Sección de mapa geográfico del Eje Cafetero
+        # Sección de mapa geográfico
         if geo_data is not None:
             try:
-                # Preparar datos para el mapa
                 df_map = df_filtrado.copy()
                 df_map = df_map[df_map['Año'] == ultimo_anio]
                 
-                # Hacer el merge conservando todos los municipios
                 geo_merged = geo_data.merge(
                     df_map,
                     left_on='MPIO_CNMBR',
@@ -246,7 +264,6 @@ with tab1:
                     how='left'
                 )
                 
-                # Creamos un mapa base con todos los municipios en gris claro
                 fig_mapa = px.choropleth(
                     geo_merged,
                     geojson=geo_merged.geometry,
@@ -263,11 +280,12 @@ with tab1:
                     height=600
                 )
                 
-                if not df_map.empty and municipio:
-                    # Filtrar el geo-dataframe para el municipio seleccionado
-                    highlight_data = geo_merged[geo_merged['MPIO_CNMBR'] == municipio].copy()
-                
-                    # Crear un segundo mapa solo para el municipio seleccionado con la escala 'Viridis'
+                if not df_map.empty:
+                    if municipio and municipio != 'Todas':
+                        highlight_data = geo_merged[geo_merged['MPIO_CNMBR'] == municipio].copy()
+                    else:
+                        highlight_data = geo_merged[~geo_merged['Valor'].isna()].copy()
+                    
                     highlight_map = px.choropleth(
                         highlight_data,
                         geojson=highlight_data.geometry,
@@ -278,20 +296,10 @@ with tab1:
                         color_continuous_scale='Viridis',
                         projection="mercator",
                     )
-                
-                    # Añadir el mapa de realce como una traza al mapa base
+                    
                     fig_mapa.add_trace(highlight_map.data[0])
                 
-                # Personalizar la apariencia del mapa
-                fig_mapa.update_geos(
-                    visible=False,
-                    center=dict(lon=-75.5, lat=5.5),
-                    projection_scale=20,
-                    bgcolor='rgba(0,0,0,0)'
-                )
-                
-                # Resaltar el municipio seleccionado con un borde
-                if municipio:
+                if municipio and municipio != 'Todas':
                     municipio_index = geo_merged[geo_merged['MPIO_CNMBR'] == municipio].index
                     fig_mapa.add_trace(
                         px.choropleth(
@@ -306,7 +314,13 @@ with tab1:
                         )
                     )
                 
-                # Configurar la barra de color
+                fig_mapa.update_geos(
+                    visible=False,
+                    center=dict(lon=-75.5, lat=5.5),
+                    projection_scale=20,
+                    bgcolor='rgba(0,0,0,0)'
+                )
+                
                 fig_mapa.update_layout(
                     margin={"r":0,"t":60,"l":0,"b":0},
                     coloraxis_colorbar=dict(
@@ -321,7 +335,6 @@ with tab1:
                     )
                 )
                 
-                # Personalizar los tooltips
                 fig_mapa.update_traces(
                     hovertemplate="<b>%{customdata[0]}</b><br><br>" +
                                 "Valor: %{customdata[1]:.2f}<br>" +
@@ -336,7 +349,6 @@ with tab1:
     else:
         st.warning("No se encontraron datos con los filtros seleccionados")
 
-# Crear pestaña de documentación
 with tab2:
     st.header("Manual de uso")
     pdf_path = os.path.join("docs", "Manual de uso.pdf")
@@ -360,4 +372,4 @@ with tab3:
         except Exception as e:
             st.error("Error al leer el excel")
     else:
-        st.error("El arhivo no fue encontrado")
+        st.error("El archivo no fue encontrado")
