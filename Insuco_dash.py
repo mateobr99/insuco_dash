@@ -10,7 +10,7 @@ from streamlit_pdf_viewer import pdf_viewer
 st.set_page_config(layout='wide', page_title="Portal de Indicadores")
 st.title("Portal de Indicadores Sociodemográficos - Eje Cafetero")
 
-#Crear pestañas
+# Crear pestañas
 tab1, tab2, tab3 = st.tabs(["Portal de visualización", "Documentación", "Desagregación de indicadores"]) 
 
 with tab1:
@@ -33,17 +33,16 @@ with tab1:
             df['Subregion'] = df['Subregion'].astype(str).str.strip().replace('nan', np.nan)
             df['Valor'] = pd.to_numeric(df['Valor'], errors='coerce')
             df['Año'] = pd.to_numeric(df['Año'], errors='coerce')
-            df['Municipio'] = df['Municipio'].astype(str).str.strip().str.title()  # Convertir a formato título
+            df['Municipio'] = df['Municipio'].astype(str).str.strip().str.title()
             
-            # --- MODIFICACIÓN: Corrección del nombre "Belén de Umbría" ---
-            # Asegura que el nombre coincida con el del archivo geográfico
+            # Corrección de nombres
             correcciones = {
                 'Belén De Umbría': 'Belén de Umbría',
             }
             df['Municipio'] = df['Municipio'].replace(correcciones)
             
             # Filtrar solo datos del Eje Cafetero
-            departamentos_eje = ['CALDAS', 'QUINDIO', 'RISARALDA']  # Incluye acento en Quindío
+            departamentos_eje = ['CALDAS', 'QUINDIO', 'RISARALDA']
             df = df[df['Departamento'].str.upper().isin(departamentos_eje)]
             
             return df.dropna(subset=['Valor', 'Año'])
@@ -53,30 +52,23 @@ with tab1:
 
     @st.cache_data
     def cargar_geodata():
-        """Carga datos geográficos del Eje Cafetero conservando formato original"""
+        """Carga datos geográficos del Eje Cafetero"""
         try:
             geojson_path = os.path.join(DATA_DIR, "EjeCafetero.json")
             
             if not os.path.exists(geojson_path):
                 raise FileNotFoundError(f"No se encontró el archivo GeoJSON en: {geojson_path}")
             
-            # Cargar desde archivo local conservando caracteres originales
             eje_cafetero = gpd.read_file(geojson_path)
             
-            # Normalizar nombres a formato tipo oración (conservando acentos)
             if 'MPIO_CNMBR' in eje_cafetero.columns:
                 eje_cafetero['MPIO_CNMBR'] = eje_cafetero['MPIO_CNMBR'].str.title()
             
             if 'NOMBRE_DPT' in eje_cafetero.columns:
                 eje_cafetero['NOMBRE_DPT'] = eje_cafetero['NOMBRE_DPT'].str.title()
             
-            # Correcciones especiales de nombres
             correcciones = {
-                'Anserma': 'Anserma',
                 'Belén De Umbría': 'Belén de Umbría',
-                'Quinchía': 'Quinchía',
-                'Pueblo Rico': 'Pueblo Rico',
-                'Santuario': 'Santuario'
             }
             
             if 'MPIO_CNMBR' in eje_cafetero.columns:
@@ -87,9 +79,27 @@ with tab1:
             st.error(f"Error cargando datos geográficos: {str(e)}")
             return None
 
+    # --- NUEVA FUNCIÓN PARA CARGAR EL GLOSARIO ---
+    @st.cache_data
+    def cargar_glosario():
+        try:
+            glosario_path = os.path.join(DATA_DIR, "Glosario_Indicadores_Completo.xlsx")
+            if not os.path.exists(glosario_path):
+                st.warning("No se encontró el archivo de glosario. La interpretación de indicadores no estará disponible.")
+                return None
+            
+            glosario = pd.read_excel(glosario_path)
+            # Limpieza básica de nombres de columnas
+            glosario.columns = glosario.columns.str.strip()
+            return glosario
+        except Exception as e:
+            st.error(f"Error al cargar glosario: {str(e)}")
+            return None
+
     # Cargar los datos
     df = cargar_datos()
     geo_data = cargar_geodata()
+    glosario = cargar_glosario()  # Cargamos el glosario
 
     st.sidebar.header("Filtros")
 
@@ -162,6 +172,18 @@ with tab1:
     # Visualización principal
     # --------------------------------------------------
     if not df_filtrado.empty:
+        # --- NUEVA SECCIÓN: Mostrar interpretación del indicador ---
+        if glosario is not None:
+            try:
+                # Buscar la interpretación para la variable seleccionada
+                interpretacion = glosario.loc[glosario['Indicador'] == variable, 'Definición']
+                
+                if not interpretacion.empty:
+                    with st.expander("¿Cómo interpretar este indicador?", expanded=True):
+                        st.info(interpretacion.iloc[0])
+            except Exception as e:
+                st.warning(f"No se pudo cargar la interpretación para este indicador: {str(e)}")
+
         # Título dinámico
         titulo = f"{variable} - {departamento}"
         if subregion:
@@ -209,9 +231,7 @@ with tab1:
         # Mostrar gráfico temporal
         st.plotly_chart(fig, use_container_width=True)
         
-        # --------------------------------------------------
         # Sección de mapa geográfico del Eje Cafetero
-        # --------------------------------------------------
         if geo_data is not None:
             try:
                 # Preparar datos para el mapa
@@ -317,7 +337,6 @@ with tab1:
         st.warning("No se encontraron datos con los filtros seleccionados")
 
 # Crear pestaña de documentación
-
 with tab2:
     st.header("Manual de uso")
     pdf_path = os.path.join("docs", "Manual de uso.pdf")
