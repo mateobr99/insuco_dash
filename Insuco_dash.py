@@ -201,7 +201,7 @@ with tab1:
             if modo_agregado:
                 # Agrupar datos por año y calcular la suma total
                 df_agrupado = df_filtrado.groupby('Año', as_index=False).agg({
-                    'Valor': 'sum',
+                    'Valor': 'mean',
                     'Municipio': pd.Series.nunique
                 }).rename(columns={'Municipio': 'Num_Municipios'})
                 
